@@ -3,6 +3,7 @@
 import ora from 'ora';
 import fs from 'fs';
 import os from 'os';
+import { promisify } from 'util';
 import { exec } from 'child_process';
 
 import VERSION from './version';
@@ -12,11 +13,13 @@ import {
   selectAnime,
   selectEpisode,
   selectRecentUpload,
-  selectMainAction
+  selectMainAction,
+  shouldPlayNextEpisode
 } from './prompts';
 import { gogoanimeAPI } from './api';
 import { Anime, Episode, Action, RecentUpload } from './types';
 import { init } from './sections';
+import chalk from 'chalk';
 
 const LOGO = `
             88                                    88  88               
@@ -30,10 +33,11 @@ a8"     ""  88P'    "8a  88P'   "Y8  a8"     "8a  88  88  a8"     "8a
 `;
 
 const apiClient = gogoanimeAPI;
+const execAsync = promisify(exec);
 
 const loadEpisodeToMPV = async (episode: Episode, anime: Anime) => {
   const loadEpisodeSpinner = ora(
-    `[1/3] Loading episode ${episode.episodeNumber}`
+    `[1/3] Loading episode ${episode.episodeNumber} of ${anime.name}...`
   ).start();
   const link = await apiClient.getEpisode(episode);
   loadEpisodeSpinner.text = '[2/3] Retriveing streaming file...';
@@ -50,14 +54,16 @@ const loadEpisodeToMPV = async (episode: Episode, anime: Anime) => {
 
   const command = `${binary} --http-header-fields="Referer: ${link}" "https:${file}"`;
 
-  exec(command, (error) => {
-    if (error) {
-      console.log(error);
-      console.error(
+  try {
+    await execAsync(command);
+  } catch (e) {
+    console.log(e);
+    console.error(
+      chalk.red(
         'An unexpected error has occured. Please check the stacktrace above for more information.'
-      );
-    }
-  });
+      )
+    );
+  }
 };
 
 const runCLI = async () => {
@@ -102,10 +108,19 @@ const runCLI = async () => {
       `Successfully queried for episodes on: ${anime.name}`
     );
 
-    const episodeNumber = await selectEpisode(episodes.length);
-    const episode = episodes[episodeNumber - 1];
+    let episodeNumber = await selectEpisode(episodes.length);
+    let shouldAutoPlay = false;
 
-    loadEpisodeToMPV(episode, anime);
+    do {
+      const episode = episodes[episodeNumber - 1];
+      await loadEpisodeToMPV(episode, anime);
+      if (episodeNumber < episodes.length - 1) {
+        shouldAutoPlay = await shouldPlayNextEpisode();
+        episodeNumber += 1;
+      } else {
+        shouldAutoPlay = false;
+      }
+    } while (shouldAutoPlay);
   }
 
   if (mainAction === Action.QUIT) {
