@@ -19,7 +19,7 @@ const selectEpisode = async (maxEpisode: number) => {
       }
     }
   ]);
-  return answers.episodeNumber as number;
+  return +answers.episodeNumber;
 };
 
 export default selectEpisode;
